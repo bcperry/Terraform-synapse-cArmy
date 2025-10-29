@@ -10,9 +10,20 @@ locals {
   key_vault_key_name       = lower(format("%s-synapse-cmk-%s", var.prefix, var.environment))
   synapse_workspace_name   = lower(format("%s-synapse-%s", var.prefix, var.environment))
   spark_pool_name          = substr(lower(replace("${var.prefix}${var.environment}spark", "-", "")), 0, 15)
+  jumpbox_subnet_name      = "jumpbox"
+  jumpbox_nsg_name         = lower(format("%s-jb-nsg-%s", var.prefix, var.environment))
+  jumpbox_nic_name         = lower(format("%s-jb-nic-%s", var.prefix, var.environment))
+  jumpbox_vm_name          = substr(lower(format("%s-jb-%s", var.prefix, var.environment)), 0, 64)
+  bastion_subnet_name      = "AzureBastionSubnet"
+  bastion_public_ip_name   = lower(format("%s-bas-pip-%s", var.prefix, var.environment))
+  bastion_host_name        = lower(format("%s-bas-%s", var.prefix, var.environment))
   filesystem_name          = "synapse-workspace"
   virtual_network_name     = lower(format("%s-vnet-%s", var.prefix, var.environment))
   private_endpoint_subnet  = "private-endpoints"
+  enable_private_dns_zones = var.enable_private_dns_zones
+  using_existing_identity  = var.existing_user_assigned_identity != null
+  using_existing_key_vault = var.existing_key_vault != null
+  using_existing_key       = var.existing_key_vault_key != null
 
   default_tags = merge({
     environment = var.environment
@@ -43,64 +54,182 @@ resource "azurerm_subnet" "private_endpoints" {
   private_endpoint_network_policies = "Disabled"
 }
 
+resource "azurerm_subnet" "jumpbox" {
+  name                 = local.jumpbox_subnet_name
+  resource_group_name  = azurerm_resource_group.synapse.name
+  virtual_network_name = azurerm_virtual_network.synapse.name
+  address_prefixes     = [var.jumpbox_subnet_prefix]
+}
+
+resource "azurerm_subnet" "bastion" {
+  name                 = local.bastion_subnet_name
+  resource_group_name  = azurerm_resource_group.synapse.name
+  virtual_network_name = azurerm_virtual_network.synapse.name
+  address_prefixes     = [var.bastion_subnet_prefix]
+}
+
+resource "azurerm_network_security_group" "jumpbox" {
+  name                = local.jumpbox_nsg_name
+  location            = azurerm_resource_group.synapse.location
+  resource_group_name = azurerm_resource_group.synapse.name
+
+  security_rule {
+    name                       = "AllowSSH"
+    priority                   = 100
+    direction                  = "Inbound"
+    access                     = "Allow"
+    protocol                   = "Tcp"
+    source_port_range          = "*"
+    destination_port_range     = "22"
+    source_address_prefix      = var.bastion_subnet_prefix
+    destination_address_prefix = "*"
+  }
+
+  tags = local.default_tags
+}
+
+resource "azurerm_subnet_network_security_group_association" "jumpbox" {
+  subnet_id                 = azurerm_subnet.jumpbox.id
+  network_security_group_id = azurerm_network_security_group.jumpbox.id
+}
+
+resource "azurerm_network_interface" "jumpbox" {
+  name                = local.jumpbox_nic_name
+  location            = azurerm_resource_group.synapse.location
+  resource_group_name = azurerm_resource_group.synapse.name
+
+  ip_configuration {
+    name                          = "primary"
+    subnet_id                     = azurerm_subnet.jumpbox.id
+    private_ip_address_allocation = "Dynamic"
+  }
+
+  tags = local.default_tags
+}
+
+resource "azurerm_public_ip" "bastion" {
+  name                = local.bastion_public_ip_name
+  location            = azurerm_resource_group.synapse.location
+  resource_group_name = azurerm_resource_group.synapse.name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+
+  tags = local.default_tags
+}
+
+resource "azurerm_bastion_host" "main" {
+  name                = local.bastion_host_name
+  location            = azurerm_resource_group.synapse.location
+  resource_group_name = azurerm_resource_group.synapse.name
+
+  ip_configuration {
+    name                 = "configuration"
+    subnet_id            = azurerm_subnet.bastion.id
+    public_ip_address_id = azurerm_public_ip.bastion.id
+  }
+
+  tags = local.default_tags
+}
+
+resource "azurerm_linux_virtual_machine" "jumpbox" {
+  name                = local.jumpbox_vm_name
+  resource_group_name = azurerm_resource_group.synapse.name
+  location            = azurerm_resource_group.synapse.location
+  size                = "Standard_B2s"
+  admin_username      = var.jumpbox_admin_username
+  network_interface_ids = [
+    azurerm_network_interface.jumpbox.id
+  ]
+  disable_password_authentication = true
+
+  admin_ssh_key {
+    username   = var.jumpbox_admin_username
+    public_key = var.jumpbox_admin_ssh_public_key
+  }
+
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "StandardSSD_LRS"
+  }
+
+  source_image_reference {
+    publisher = "Canonical"
+    offer     = "0001-com-ubuntu-server-jammy"
+    sku       = "22_04-lts"
+    version   = "latest"
+  }
+
+  tags = local.default_tags
+}
+
 # Private DNS zones for US Government cloud endpoints
 resource "azurerm_private_dns_zone" "storage_blob" {
+  count               = local.enable_private_dns_zones ? 1 : 0
   name                = "privatelink.blob.core.usgovcloudapi.net"
   resource_group_name = azurerm_resource_group.synapse.name
 }
 
 resource "azurerm_private_dns_zone" "storage_dfs" {
+  count               = local.enable_private_dns_zones ? 1 : 0
   name                = "privatelink.dfs.core.usgovcloudapi.net"
   resource_group_name = azurerm_resource_group.synapse.name
 }
 
 resource "azurerm_private_dns_zone" "key_vault" {
+  count               = local.enable_private_dns_zones ? 1 : 0
   name                = "privatelink.vaultcore.usgovcloudapi.net"
   resource_group_name = azurerm_resource_group.synapse.name
 }
 
 resource "azurerm_private_dns_zone" "synapse_sql" {
+  count               = local.enable_private_dns_zones ? 1 : 0
   name                = "privatelink.sql.azuresynapse.usgovcloudapi.net"
   resource_group_name = azurerm_resource_group.synapse.name
 }
 
 resource "azurerm_private_dns_zone" "synapse_dev" {
+  count               = local.enable_private_dns_zones ? 1 : 0
   name                = "privatelink.dev.azuresynapse.usgovcloudapi.net"
   resource_group_name = azurerm_resource_group.synapse.name
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "storage_blob" {
+  count                 = local.enable_private_dns_zones ? 1 : 0
   name                  = "${local.virtual_network_name}-blob-link"
   resource_group_name   = azurerm_resource_group.synapse.name
-  private_dns_zone_name = azurerm_private_dns_zone.storage_blob.name
+  private_dns_zone_name = azurerm_private_dns_zone.storage_blob[0].name
   virtual_network_id    = azurerm_virtual_network.synapse.id
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "storage_dfs" {
+  count                 = local.enable_private_dns_zones ? 1 : 0
   name                  = "${local.virtual_network_name}-dfs-link"
   resource_group_name   = azurerm_resource_group.synapse.name
-  private_dns_zone_name = azurerm_private_dns_zone.storage_dfs.name
+  private_dns_zone_name = azurerm_private_dns_zone.storage_dfs[0].name
   virtual_network_id    = azurerm_virtual_network.synapse.id
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "key_vault" {
+  count                 = local.enable_private_dns_zones ? 1 : 0
   name                  = "${local.virtual_network_name}-kv-link"
   resource_group_name   = azurerm_resource_group.synapse.name
-  private_dns_zone_name = azurerm_private_dns_zone.key_vault.name
+  private_dns_zone_name = azurerm_private_dns_zone.key_vault[0].name
   virtual_network_id    = azurerm_virtual_network.synapse.id
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "synapse_sql" {
+  count                 = local.enable_private_dns_zones ? 1 : 0
   name                  = "${local.virtual_network_name}-sql-link"
   resource_group_name   = azurerm_resource_group.synapse.name
-  private_dns_zone_name = azurerm_private_dns_zone.synapse_sql.name
+  private_dns_zone_name = azurerm_private_dns_zone.synapse_sql[0].name
   virtual_network_id    = azurerm_virtual_network.synapse.id
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "synapse_dev" {
+  count                 = local.enable_private_dns_zones ? 1 : 0
   name                  = "${local.virtual_network_name}-dev-link"
   resource_group_name   = azurerm_resource_group.synapse.name
-  private_dns_zone_name = azurerm_private_dns_zone.synapse_dev.name
+  private_dns_zone_name = azurerm_private_dns_zone.synapse_dev[0].name
   virtual_network_id    = azurerm_virtual_network.synapse.id
 }
 
@@ -147,9 +276,12 @@ resource "azurerm_private_endpoint" "primary_blob" {
     subresource_names              = ["blob"]
   }
 
-  private_dns_zone_group {
-    name                 = "storage-blob"
-    private_dns_zone_ids = [azurerm_private_dns_zone.storage_blob.id]
+  dynamic "private_dns_zone_group" {
+    for_each = local.enable_private_dns_zones ? [1] : []
+    content {
+      name                 = "storage-blob"
+      private_dns_zone_ids = [azurerm_private_dns_zone.storage_blob[0].id]
+    }
   }
 
   tags = local.default_tags
@@ -168,9 +300,12 @@ resource "azurerm_private_endpoint" "primary_dfs" {
     subresource_names              = ["dfs"]
   }
 
-  private_dns_zone_group {
-    name                 = "storage-dfs"
-    private_dns_zone_ids = [azurerm_private_dns_zone.storage_dfs.id]
+  dynamic "private_dns_zone_group" {
+    for_each = local.enable_private_dns_zones ? [1] : []
+    content {
+      name                 = "storage-dfs"
+      private_dns_zone_ids = [azurerm_private_dns_zone.storage_dfs[0].id]
+    }
   }
 
   tags = local.default_tags
@@ -189,9 +324,12 @@ resource "azurerm_private_endpoint" "diagnostics_blob" {
     subresource_names              = ["blob"]
   }
 
-  private_dns_zone_group {
-    name                 = "diagnostics-blob"
-    private_dns_zone_ids = [azurerm_private_dns_zone.storage_blob.id]
+  dynamic "private_dns_zone_group" {
+    for_each = local.enable_private_dns_zones ? [1] : []
+    content {
+      name                 = "diagnostics-blob"
+      private_dns_zone_ids = [azurerm_private_dns_zone.storage_blob[0].id]
+    }
   }
 
   tags = local.default_tags
@@ -205,13 +343,21 @@ resource "azurerm_storage_data_lake_gen2_filesystem" "workspace" {
 }
 
 resource "azurerm_user_assigned_identity" "synapse" {
+  count               = local.using_existing_identity ? 0 : 1
   name                = local.managed_identity_name
   resource_group_name = azurerm_resource_group.synapse.name
   location            = azurerm_resource_group.synapse.location
   tags                = local.default_tags
 }
 
+data "azurerm_user_assigned_identity" "existing" {
+  count               = local.using_existing_identity ? 1 : 0
+  name                = var.existing_user_assigned_identity.name
+  resource_group_name = var.existing_user_assigned_identity.resource_group_name
+}
+
 resource "azurerm_key_vault" "synapse" {
+  count                         = local.using_existing_key_vault ? 0 : 1
   name                          = local.key_vault_name
   location                      = azurerm_resource_group.synapse.location
   resource_group_name           = azurerm_resource_group.synapse.name
@@ -229,6 +375,12 @@ resource "azurerm_key_vault" "synapse" {
   tags = local.default_tags
 }
 
+data "azurerm_key_vault" "existing" {
+  count               = local.using_existing_key_vault ? 1 : 0
+  name                = var.existing_key_vault.name
+  resource_group_name = var.existing_key_vault.resource_group_name
+}
+
 resource "azurerm_private_endpoint" "key_vault" {
   name                = "${var.prefix}-pe-kv-${var.environment}"
   location            = azurerm_resource_group.synapse.location
@@ -238,20 +390,24 @@ resource "azurerm_private_endpoint" "key_vault" {
   private_service_connection {
     name                           = "pe-kv"
     is_manual_connection           = false
-    private_connection_resource_id = azurerm_key_vault.synapse.id
+    private_connection_resource_id = local.synapse_key_vault_id
     subresource_names              = ["Vault"]
   }
 
-  private_dns_zone_group {
-    name                 = "kv"
-    private_dns_zone_ids = [azurerm_private_dns_zone.key_vault.id]
+  dynamic "private_dns_zone_group" {
+    for_each = local.enable_private_dns_zones ? [1] : []
+    content {
+      name                 = "kv"
+      private_dns_zone_ids = [azurerm_private_dns_zone.key_vault[0].id]
+    }
   }
 
   tags = local.default_tags
 }
 
 resource "azurerm_key_vault_access_policy" "administrator" {
-  key_vault_id = azurerm_key_vault.synapse.id
+  count        = local.using_existing_key_vault ? 0 : 1
+  key_vault_id = local.synapse_key_vault_id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = data.azurerm_client_config.current.object_id
 
@@ -267,9 +423,10 @@ resource "azurerm_key_vault_access_policy" "administrator" {
 }
 
 resource "azurerm_key_vault_access_policy" "synapse_identity" {
-  key_vault_id = azurerm_key_vault.synapse.id
+  count        = local.using_existing_key_vault ? 0 : 1
+  key_vault_id = local.synapse_key_vault_id
   tenant_id    = data.azurerm_client_config.current.tenant_id
-  object_id    = azurerm_user_assigned_identity.synapse.principal_id
+  object_id    = local.synapse_identity_principal_id
 
   key_permissions = [
     "Get",
@@ -279,8 +436,9 @@ resource "azurerm_key_vault_access_policy" "synapse_identity" {
 }
 
 resource "azurerm_key_vault_key" "synapse" {
+  count        = local.using_existing_key ? 0 : 1
   name         = local.key_vault_key_name
-  key_vault_id = azurerm_key_vault.synapse.id
+  key_vault_id = local.synapse_key_vault_id
   key_type     = "RSA"
   key_size     = 2048
   key_opts     = ["unwrapKey", "wrapKey"]
@@ -299,10 +457,59 @@ resource "azurerm_key_vault_key" "synapse" {
   ]
 }
 
+data "azurerm_key_vault_key" "existing" {
+  count = local.using_existing_key ? 1 : 0
+  name  = var.existing_key_vault_key.name
+  key_vault_id = element(concat(
+    azurerm_key_vault.synapse[*].id,
+    data.azurerm_key_vault.existing[*].id,
+  ), 0)
+
+}
+
+locals {
+  synapse_identity_id = element(concat(
+    azurerm_user_assigned_identity.synapse[*].id,
+    data.azurerm_user_assigned_identity.existing[*].id,
+  ), 0)
+
+  synapse_identity_principal_id = element(concat(
+    azurerm_user_assigned_identity.synapse[*].principal_id,
+    data.azurerm_user_assigned_identity.existing[*].principal_id,
+  ), 0)
+
+  synapse_key_vault_id = element(concat(
+    azurerm_key_vault.synapse[*].id,
+    data.azurerm_key_vault.existing[*].id,
+  ), 0)
+
+  synapse_key_vault_uri = element(concat(
+    azurerm_key_vault.synapse[*].vault_uri,
+    data.azurerm_key_vault.existing[*].vault_uri,
+  ), 0)
+
+  synapse_key_versionless_id = element(concat(
+    azurerm_key_vault_key.synapse[*].versionless_id,
+    data.azurerm_key_vault_key.existing[*].versionless_id,
+  ), 0)
+
+  synapse_key_name = element(concat(
+    azurerm_key_vault_key.synapse[*].name,
+    data.azurerm_key_vault_key.existing[*].name,
+  ), 0)
+}
+
+check "existing_key_requires_vault" {
+  assert {
+    condition     = var.existing_key_vault_key == null || var.existing_key_vault != null
+    error_message = "existing_key_vault must be provided when existing_key_vault_key is supplied."
+  }
+}
+
 resource "azurerm_role_assignment" "synapse_storage_data" {
   scope                = azurerm_storage_account.primary.id
   role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = azurerm_user_assigned_identity.synapse.principal_id
+  principal_id         = local.synapse_identity_principal_id
 }
 
 resource "azurerm_synapse_workspace" "main" {
@@ -318,13 +525,13 @@ resource "azurerm_synapse_workspace" "main" {
 
   identity {
     type         = "SystemAssigned, UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.synapse.id]
+    identity_ids = [local.synapse_identity_id]
   }
 
   customer_managed_key {
-    key_name                  = azurerm_key_vault_key.synapse.name
-    key_versionless_id        = azurerm_key_vault_key.synapse.versionless_id
-    user_assigned_identity_id = azurerm_user_assigned_identity.synapse.id
+    key_name                  = local.synapse_key_name
+    key_versionless_id        = local.synapse_key_versionless_id
+    user_assigned_identity_id = local.synapse_identity_id
   }
 
   tags = local.default_tags
@@ -348,9 +555,12 @@ resource "azurerm_private_endpoint" "synapse_sql" {
     subresource_names              = ["Sql"]
   }
 
-  private_dns_zone_group {
-    name                 = "synapse-sql"
-    private_dns_zone_ids = [azurerm_private_dns_zone.synapse_sql.id]
+  dynamic "private_dns_zone_group" {
+    for_each = local.enable_private_dns_zones ? [1] : []
+    content {
+      name                 = "synapse-sql"
+      private_dns_zone_ids = [azurerm_private_dns_zone.synapse_sql[0].id]
+    }
   }
 
   tags = local.default_tags
@@ -371,9 +581,12 @@ resource "azurerm_private_endpoint" "synapse_dev" {
     subresource_names              = ["Dev"]
   }
 
-  private_dns_zone_group {
-    name                 = "synapse-dev"
-    private_dns_zone_ids = [azurerm_private_dns_zone.synapse_dev.id]
+  dynamic "private_dns_zone_group" {
+    for_each = local.enable_private_dns_zones ? [1] : []
+    content {
+      name                 = "synapse-dev"
+      private_dns_zone_ids = [azurerm_private_dns_zone.synapse_dev[0].id]
+    }
   }
 
   tags = local.default_tags

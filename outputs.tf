@@ -10,10 +10,10 @@ output "synapse_workspace_name" {
 
 output "managed_identity_principal_id" {
   description = "Principal (object) ID of the user-assigned managed identity used by Synapse."
-  value       = azurerm_user_assigned_identity.synapse.principal_id
+  value       = local.synapse_identity_principal_id
 }
 
 output "key_vault_uri" {
   description = "URI endpoint of the Key Vault holding the customer-managed key."
-  value       = azurerm_key_vault.synapse.vault_uri
+  value       = local.synapse_key_vault_uri
 }
