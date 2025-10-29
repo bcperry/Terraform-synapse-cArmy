@@ -9,6 +9,7 @@ locals {
   key_vault_name           = substr(lower(replace("${var.prefix}${var.environment}kv", "-", "")), 0, 24)
   key_vault_key_name       = lower(format("%s-synapse-cmk-%s", var.prefix, var.environment))
   synapse_workspace_name   = lower(format("%s-synapse-%s", var.prefix, var.environment))
+  spark_pool_name          = substr(lower(replace("${var.prefix}${var.environment}spark", "-", "")), 0, 15)
   filesystem_name          = "synapse-workspace"
   virtual_network_name     = lower(format("%s-vnet-%s", var.prefix, var.environment))
   private_endpoint_subnet  = "private-endpoints"
@@ -373,6 +374,23 @@ resource "azurerm_private_endpoint" "synapse_dev" {
   private_dns_zone_group {
     name                 = "synapse-dev"
     private_dns_zone_ids = [azurerm_private_dns_zone.synapse_dev.id]
+  }
+
+  tags = local.default_tags
+
+  depends_on = [azurerm_synapse_workspace.main]
+}
+
+resource "azurerm_synapse_spark_pool" "dev" {
+  name                 = local.spark_pool_name
+  synapse_workspace_id = azurerm_synapse_workspace.main.id
+  node_size_family     = "MemoryOptimized"
+  node_size            = "Small"
+  node_count           = 3 # Smallest allowed fixed-size pool configuration
+  spark_version        = "3.4"
+
+  auto_pause {
+    delay_in_minutes = 15 # Keep costs down by pausing quickly when idle
   }
 
   tags = local.default_tags
