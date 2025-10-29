@@ -27,6 +27,18 @@ variable "tags" {
   default     = {}
 }
 
+variable "vnet_address_space" {
+  description = "Address space for the virtual network that hosts private endpoints."
+  type        = list(string)
+  default     = ["10.60.0.0/16"]
+}
+
+variable "private_endpoint_subnet_prefix" {
+  description = "Address prefix allocated to the subnet that will host all private endpoints."
+  type        = string
+  default     = "10.60.10.0/24"
+}
+
 variable "synapse_sql_administrator_login" {
   description = "Synapse SQL administrator login name."
   type        = string

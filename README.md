@@ -1,13 +1,15 @@
 # Terraform Synapse Environment (Azure Government)
 
-This project provisions a minimal Azure Synapse Analytics workspace in Azure Government with customer-managed keys. The deployment includes:
+This project provisions a minimal Azure Synapse Analytics workspace in Azure Government with customer-managed keys and private networking enforced through Azure Private Endpoints. The deployment includes:
 
 - Azure resource group
+- Virtual network and dedicated subnet for private endpoints
 - ADLS Gen2 storage account for Synapse primary storage
 - Secondary storage account for diagnostics
 - User-assigned managed identity for the workspace
 - Azure Key Vault and RSA key for workspace encryption
 - Synapse workspace configured with system-assigned + user-assigned managed identity and CMK
+- Private endpoints (and Private DNS zones) for storage, Key Vault, and Synapse SQL/Dev endpoints
 
 ## Prerequisites
 
@@ -19,6 +21,13 @@ This project provisions a minimal Azure Synapse Analytics workspace in Azure Gov
 
 Key input variables are declared in `variables.tf`. Provide values via `terraform.tfvars` (a sample is already present) or your preferred method.
 
+Networking defaults can be overridden as required:
+
+```hcl
+vnet_address_space              = ["10.60.0.0/16"]
+private_endpoint_subnet_prefix  = "10.60.10.0/24"
+```
+
 ```hcl
 prefix                             = "synapsetest"
 location                           = "usgovvirginia"
@@ -29,7 +38,9 @@ synapse_sql_administrator_password = "ReplaceWithStrongPassword123!"
 
 > **Security tip:** replace the sample admin password with a strong secret and never commit real credentials.
 
-If you need to allow client access to the serverless SQL endpoint, add Synapse firewall rules (e.g., `azurerm_synapse_firewall_rule`) or configure private endpoints as required.
+> **Private networking:** All services disable public network access and expose data planes solely through private endpoints. Run Terraform from an execution environment that has line-of-sight into the virtual network (for example, an Azure DevOps self-hosted agent joined to the VNet, or an Azure VM/bastion inside the network). Data plane operations such as creating the Data Lake filesystem or Key Vault keys require access through the private endpoints.
+
+If you need to expose the environment temporarily for bootstrapping or break-glass scenarios, either run Terraform from within the VNet or adjust the firewall/`public_network_access_enabled` settings manually and revert once finished.
 
 ## Usage
 
