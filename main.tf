@@ -35,11 +35,11 @@ resource "azurerm_virtual_network" "synapse" {
 }
 
 resource "azurerm_subnet" "private_endpoints" {
-  name                                      = local.private_endpoint_subnet
-  resource_group_name                       = azurerm_resource_group.synapse.name
-  virtual_network_name                      = azurerm_virtual_network.synapse.name
-  address_prefixes                          = [var.private_endpoint_subnet_prefix]
-  private_endpoint_network_policies_enabled = false
+  name                              = local.private_endpoint_subnet
+  resource_group_name               = azurerm_resource_group.synapse.name
+  virtual_network_name              = azurerm_virtual_network.synapse.name
+  address_prefixes                  = [var.private_endpoint_subnet_prefix]
+  private_endpoint_network_policies = "Disabled"
 }
 
 # Private DNS zones for US Government cloud endpoints
