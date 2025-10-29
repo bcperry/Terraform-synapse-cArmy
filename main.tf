@@ -391,30 +391,6 @@ data "azurerm_key_vault" "existing" {
   resource_group_name = var.existing_key_vault.resource_group_name
 }
 
-resource "azurerm_private_endpoint" "key_vault" {
-  name                = "${var.prefix}-pe-kv-${var.environment}"
-  location            = azurerm_resource_group.synapse.location
-  resource_group_name = azurerm_resource_group.synapse.name
-  subnet_id           = azurerm_subnet.private_endpoints.id
-
-  private_service_connection {
-    name                           = "pe-kv"
-    is_manual_connection           = false
-    private_connection_resource_id = local.synapse_key_vault_id
-    subresource_names              = ["Vault"]
-  }
-
-  dynamic "private_dns_zone_group" {
-    for_each = local.enable_private_dns_zones ? [1] : []
-    content {
-      name                 = "kv"
-      private_dns_zone_ids = [azurerm_private_dns_zone.key_vault[0].id]
-    }
-  }
-
-  tags = local.default_tags
-}
-
 resource "azurerm_key_vault_access_policy" "administrator" {
   count        = local.using_existing_key_vault ? 0 : 1
   key_vault_id = local.synapse_key_vault_id
@@ -462,8 +438,7 @@ resource "azurerm_key_vault_key" "synapse" {
   }
 
   depends_on = [
-    azurerm_key_vault_access_policy.administrator,
-    azurerm_private_endpoint.key_vault
+    azurerm_key_vault_access_policy.administrator
   ]
 }
 

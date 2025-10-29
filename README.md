@@ -9,7 +9,7 @@ This project provisions a minimal Azure Synapse Analytics workspace in Azure Gov
 - User-assigned managed identity for the workspace
 - Azure Key Vault and RSA key for workspace encryption
 - Synapse workspace configured with system-assigned + user-assigned managed identity and CMK
-- Private endpoints with optional Private DNS zones for storage, Key Vault, and Synapse SQL/Dev endpoints
+- Private endpoints with optional Private DNS zones for storage and Synapse SQL/Dev endpoints
 
 ## Prerequisites
 
