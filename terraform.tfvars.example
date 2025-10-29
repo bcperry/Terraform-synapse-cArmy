@@ -1,0 +1,12 @@
+# Update the values below with environment-specific details before running Terraform commands.
+prefix                             = "synapsetest"
+environment                        = "dev"
+location                           = "usgovvirginia"
+azure_environment                  = "usgovernment"
+synapse_sql_administrator_login    = "synapseadmin"
+synapse_sql_administrator_password = "ReplaceWithStrongPassword123!"
+
+tags = {
+  owner      = "data-team"
+  costcenter = "1234"
+}
