@@ -6,9 +6,17 @@ azure_environment                  = "usgovernment"
 synapse_sql_administrator_login    = "synapseadmin"
 synapse_sql_administrator_password = "ReplaceWithStrongPassword123!"
 
-existing_user_assigned_identity = ""
-existing_key_vault = ""
-existing_key_vault_key = ""
+existing_user_assigned_identity = {
+  name                = "existing-identity-name"
+  resource_group_name = "existing-identity-rg"
+}
+existing_key_vault = {
+  name                = "existing-keyvault-name"
+  resource_group_name = "existing-keyvault-rg"
+}
+existing_key_vault_key = {
+  name = "existing-key-name"
+}
 enable_private_dns_zones = false
 
 tags = {
