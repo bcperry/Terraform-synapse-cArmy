@@ -44,6 +44,19 @@ synapse_sql_administrator_password = "ReplaceWithStrongPassword123!"
 - `enable_jumpbox_bastion` toggles deployment of the Bastion host, jump box subnet/NSG/NIC, and the Ubuntu VM (default `true`). Disable it if interactive access is handled elsewhere; when disabled the `jumpbox_admin_ssh_public_key` input can be left blank.
 - `existing_user_assigned_identity`, `existing_key_vault`, and `existing_key_vault_key` let you reuse pre-created platform resources. Provide the object values (name/resource group, and key name) when reuse is required; leave them `null` to let Terraform create new resources.
 
+### Manual role assignment
+
+This module no longer grants the user-assigned managed identity permissions on the primary storage account. Before the Synapse workspace can access the ADLS Gen2 filesystem, someone with **Owner** rights on the subscription or resource group must assign the **Storage Blob Data Contributor** role to the managed identity at the storage account scope. Example Azure CLI command (run by an owner):
+
+```powershell
+az role assignment create `
+	--assignee-object-id <managed-identity-principal-id> `
+	--role "Storage Blob Data Contributor" `
+	--scope $(az storage account show --name <primary-storage-name> --resource-group <resource-group> --query id -o tsv)
+```
+
+You can obtain the managed identity principal ID and storage account name from the Terraform outputs (`managed_identity_principal_id`, `primary_storage_name`).
+
 > **Private networking:** All services disable public network access and expose data planes solely through private endpoints. Run Terraform from an execution environment that has line-of-sight into the virtual network (for example, an Azure DevOps self-hosted agent joined to the VNet, or an Azure VM/bastion inside the network). Data plane operations such as creating the Data Lake filesystem or Key Vault keys require access through the private endpoints.
 
 If you need to expose the environment temporarily for bootstrapping or break-glass scenarios, either run Terraform from within the VNet or adjust the firewall/`public_network_access_enabled` settings manually and revert once finished.

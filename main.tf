@@ -523,12 +523,6 @@ check "jumpbox_requires_ssh_key" {
   }
 }
 
-resource "azurerm_role_assignment" "synapse_storage_data" {
-  scope                = azurerm_storage_account.primary.id
-  role_definition_name = "Storage Blob Data Contributor"
-  principal_id         = local.synapse_identity_principal_id
-}
-
 resource "azurerm_synapse_workspace" "main" {
   name                                 = local.synapse_workspace_name
   resource_group_name                  = azurerm_resource_group.synapse.name
@@ -554,7 +548,6 @@ resource "azurerm_synapse_workspace" "main" {
   tags = local.default_tags
 
   depends_on = [
-    azurerm_role_assignment.synapse_storage_data,
     azurerm_key_vault_access_policy.synapse_identity
   ]
 }

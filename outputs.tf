@@ -8,6 +8,11 @@ output "synapse_workspace_name" {
   value       = azurerm_synapse_workspace.main.name
 }
 
+output "primary_storage_account_name" {
+  description = "Name of the primary ADLS Gen2 storage account backing the Synapse workspace."
+  value       = azurerm_storage_account.primary.name
+}
+
 output "managed_identity_principal_id" {
   description = "Principal (object) ID of the user-assigned managed identity used by Synapse."
   value       = local.synapse_identity_principal_id
