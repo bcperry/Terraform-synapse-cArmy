@@ -21,6 +21,7 @@ locals {
   virtual_network_name     = lower(format("%s-vnet-%s", var.prefix, var.environment))
   private_endpoint_subnet  = "private-endpoints"
   enable_private_dns_zones = var.enable_private_dns_zones
+  enable_jumpbox_bastion   = var.enable_jumpbox_bastion
   using_existing_identity  = var.existing_user_assigned_identity != null
   using_existing_key_vault = var.existing_key_vault != null
   using_existing_key       = var.existing_key_vault_key != null
@@ -55,6 +56,7 @@ resource "azurerm_subnet" "private_endpoints" {
 }
 
 resource "azurerm_subnet" "jumpbox" {
+  count                = local.enable_jumpbox_bastion ? 1 : 0
   name                 = local.jumpbox_subnet_name
   resource_group_name  = azurerm_resource_group.synapse.name
   virtual_network_name = azurerm_virtual_network.synapse.name
@@ -62,6 +64,7 @@ resource "azurerm_subnet" "jumpbox" {
 }
 
 resource "azurerm_subnet" "bastion" {
+  count                = local.enable_jumpbox_bastion ? 1 : 0
   name                 = local.bastion_subnet_name
   resource_group_name  = azurerm_resource_group.synapse.name
   virtual_network_name = azurerm_virtual_network.synapse.name
@@ -69,6 +72,7 @@ resource "azurerm_subnet" "bastion" {
 }
 
 resource "azurerm_network_security_group" "jumpbox" {
+  count               = local.enable_jumpbox_bastion ? 1 : 0
   name                = local.jumpbox_nsg_name
   location            = azurerm_resource_group.synapse.location
   resource_group_name = azurerm_resource_group.synapse.name
@@ -89,18 +93,21 @@ resource "azurerm_network_security_group" "jumpbox" {
 }
 
 resource "azurerm_subnet_network_security_group_association" "jumpbox" {
-  subnet_id                 = azurerm_subnet.jumpbox.id
-  network_security_group_id = azurerm_network_security_group.jumpbox.id
+  count = local.enable_jumpbox_bastion ? 1 : 0
+
+  subnet_id                 = azurerm_subnet.jumpbox[count.index].id
+  network_security_group_id = azurerm_network_security_group.jumpbox[count.index].id
 }
 
 resource "azurerm_network_interface" "jumpbox" {
+  count               = local.enable_jumpbox_bastion ? 1 : 0
   name                = local.jumpbox_nic_name
   location            = azurerm_resource_group.synapse.location
   resource_group_name = azurerm_resource_group.synapse.name
 
   ip_configuration {
     name                          = "primary"
-    subnet_id                     = azurerm_subnet.jumpbox.id
+    subnet_id                     = azurerm_subnet.jumpbox[count.index].id
     private_ip_address_allocation = "Dynamic"
   }
 
@@ -108,6 +115,7 @@ resource "azurerm_network_interface" "jumpbox" {
 }
 
 resource "azurerm_public_ip" "bastion" {
+  count               = local.enable_jumpbox_bastion ? 1 : 0
   name                = local.bastion_public_ip_name
   location            = azurerm_resource_group.synapse.location
   resource_group_name = azurerm_resource_group.synapse.name
@@ -118,27 +126,29 @@ resource "azurerm_public_ip" "bastion" {
 }
 
 resource "azurerm_bastion_host" "main" {
+  count               = local.enable_jumpbox_bastion ? 1 : 0
   name                = local.bastion_host_name
   location            = azurerm_resource_group.synapse.location
   resource_group_name = azurerm_resource_group.synapse.name
 
   ip_configuration {
     name                 = "configuration"
-    subnet_id            = azurerm_subnet.bastion.id
-    public_ip_address_id = azurerm_public_ip.bastion.id
+    subnet_id            = azurerm_subnet.bastion[count.index].id
+    public_ip_address_id = azurerm_public_ip.bastion[count.index].id
   }
 
   tags = local.default_tags
 }
 
 resource "azurerm_linux_virtual_machine" "jumpbox" {
+  count               = local.enable_jumpbox_bastion ? 1 : 0
   name                = local.jumpbox_vm_name
   resource_group_name = azurerm_resource_group.synapse.name
   location            = azurerm_resource_group.synapse.location
   size                = "Standard_B2s"
   admin_username      = var.jumpbox_admin_username
   network_interface_ids = [
-    azurerm_network_interface.jumpbox.id
+    azurerm_network_interface.jumpbox[count.index].id
   ]
   disable_password_authentication = true
 
@@ -503,6 +513,13 @@ check "existing_key_requires_vault" {
   assert {
     condition     = var.existing_key_vault_key == null || var.existing_key_vault != null
     error_message = "existing_key_vault must be provided when existing_key_vault_key is supplied."
+  }
+}
+
+check "jumpbox_requires_ssh_key" {
+  assert {
+    condition     = !local.enable_jumpbox_bastion || trim(var.jumpbox_admin_ssh_public_key) != ""
+    error_message = "jumpbox_admin_ssh_public_key must be provided when enable_jumpbox_bastion is true."
   }
 }
 

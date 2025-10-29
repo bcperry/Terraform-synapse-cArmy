@@ -41,6 +41,7 @@ synapse_sql_administrator_password = "ReplaceWithStrongPassword123!"
 ### Feature toggles and reuse options
 
 - `enable_private_dns_zones` controls whether Terraform creates the Private DNS zones/linkages for each private endpoint (default `true`). Set this to `false` when your organisation manages the required `privatelink` records outside of this deployment. Without the zones you must configure name resolution manually so clients resolve the private endpoint IPs.
+- `enable_jumpbox_bastion` toggles deployment of the Bastion host, jump box subnet/NSG/NIC, and the Ubuntu VM (default `true`). Disable it if interactive access is handled elsewhere; when disabled the `jumpbox_admin_ssh_public_key` input can be left blank.
 - `existing_user_assigned_identity`, `existing_key_vault`, and `existing_key_vault_key` let you reuse pre-created platform resources. Provide the object values (name/resource group, and key name) when reuse is required; leave them `null` to let Terraform create new resources.
 
 > **Private networking:** All services disable public network access and expose data planes solely through private endpoints. Run Terraform from an execution environment that has line-of-sight into the virtual network (for example, an Azure DevOps self-hosted agent joined to the VNet, or an Azure VM/bastion inside the network). Data plane operations such as creating the Data Lake filesystem or Key Vault keys require access through the private endpoints.

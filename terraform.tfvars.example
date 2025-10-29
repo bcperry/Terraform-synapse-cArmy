@@ -18,6 +18,7 @@ existing_key_vault_key = {
   name = "existing-key-name"
 }
 enable_private_dns_zones = false
+enable_jumpbox_bastion   = true
 
 tags = {
   owner      = "data-team"

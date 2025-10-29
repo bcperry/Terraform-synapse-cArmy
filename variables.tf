@@ -54,6 +54,7 @@ variable "jumpbox_admin_username" {
 variable "jumpbox_admin_ssh_public_key" {
   description = "SSH public key (OpenSSH format) used to secure access to the jump box virtual machine."
   type        = string
+  default     = ""
 }
 
 variable "bastion_subnet_prefix" {
@@ -64,6 +65,12 @@ variable "bastion_subnet_prefix" {
 
 variable "enable_private_dns_zones" {
   description = "Controls whether Azure Private DNS zones and links are created for private endpoints. Disable when DNS will be managed externally."
+  type        = bool
+  default     = true
+}
+
+variable "enable_jumpbox_bastion" {
+  description = "Controls whether the Bastion host and jump box VM (and supporting resources) are created. Disable when no interactive access is required."
   type        = bool
   default     = true
 }
